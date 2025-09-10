@@ -1,0 +1,21 @@
+---
+requires_ansible: '>=2.15.0'
+plugin_routing:
+  modules:
+  action:
+  become:
+  cache:
+  callback:
+  connection:
+  doc_fragments:
+  filter:
+  httpapi:
+  inventory:
+  lookup:
+  module_utils:
+  netconf:
+  shell:
+  strategy:
+  terminal:
+  test:
+  vars:

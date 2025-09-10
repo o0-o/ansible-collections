@@ -1,0 +1,30 @@
+namespace: o0_o
+name: storage
+version: 1.0.0
+readme: README.md
+authors:
+  - oØ.o (@o0-o)
+description: Storage utilities and filesystem classification for Ansible
+license:
+  - GPL-3.0-or-later
+license_file: ''
+tags:
+  - storage
+  - filesystem
+  - mount
+  - disk
+  - fstab
+  - df
+dependencies: {}
+repository: https://github.com/o0-o/ansible_collection_o0_o_storage
+documentation: https://github.com/o0-o/ansible_collection_o0_o_storage
+homepage: https://github.com/o0-o/ansible_collection_o0_o_storage
+issues: https://github.com/o0-o/ansible_collection_o0_o_storage/issues
+build_ignore:
+  - .git
+  - .github
+  - .gitignore
+  - '*.pyc'
+  - '*.retry'
+  - tests/output
+  - changelogs/.plugin-cache.yaml

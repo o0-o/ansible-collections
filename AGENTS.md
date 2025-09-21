@@ -93,25 +93,60 @@ yamllint .  # catches additional formatting issues
 # This file is part of the o0_o.<collection_name> Ansible Collection.
 ```
 
-### PEP 8 Compliance
+### Code Style and Linting
 
-**We use black and flake8 to enforce PEP 8 compliance:**
+**Always rely on automatic formatting first, then check for remaining issues:**
 
-1. **First, auto-format with black:**
+#### Python (PEP 8 Compliance)
+
+1. **ALWAYS run black first for automatic formatting:**
    ```bash
    # From collection directory
    git ls-files | grep "\.py$" | xargs black
    ```
+
+   **Benefits of black:**
+   - Consistent formatting across all code
+   - No debates about style choices
+   - Handles most PEP 8 requirements automatically
+   - Saves time on manual formatting
+   - Use it liberally - run it often!
 
 2. **Then check for remaining issues with flake8:**
    ```bash
    git ls-files | grep "\.py$" | xargs flake8
    ```
 
-3. **Manually fix any flake8 issues that black cannot handle**
+3. **Only manually fix what black cannot handle:**
+   - Long docstrings (W505) - break at 72 characters
+   - Complex line length issues black couldn't resolve
+   - Import order issues in special cases
+
+#### YAML Formatting
+
+4. **Check YAML files with yamllint:**
+   ```bash
+   yamllint .
+   ```
+
+   **Common yamllint fixes:**
+   - Line length (79 characters) - use multiline Jinja2 format
+   - Indentation issues (2 spaces for YAML)
+   - Missing document start (`---`)
+   - Trailing spaces
+
+**Complete workflow:**
+```bash
+# From collection directory
+black .                                      # Auto-format Python
+git ls-files | grep "\.py$" | xargs flake8  # Check Python issues
+yamllint .                                   # Check YAML issues
+# Fix only the remaining issues manually
+```
 
 **Configuration:**
-- **Line length**: 79 characters (enforced by black and flake8)
+- **Python line length**: 79 characters (enforced by black and flake8)
+- **YAML line length**: 79 characters (enforced by yamllint)
 - **Doc/comment length**: 72 characters (enforced by flake8)
 - **E402 (imports)**: Ignored for module files only (see pyproject.toml)
 - **Indentation**: 4 spaces for Python, 2 spaces for YAML

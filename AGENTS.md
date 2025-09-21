@@ -399,6 +399,26 @@ If \_supports\_async is False, no async-related operations should be in class me
 
 ## Testing Standards
 
+### Test Utilities & Conftest
+
+- Always check for existing helpers before writing new ones:
+  - `tests/utils/` for reusable utilities (e.g., paths, commands, mounts).
+  - Any `conftest.py` near your tests for shared fixtures.
+- Prefer reusing helpers over inlining mocks; if you repeat patterns,
+  contribute a small, focused helper to `tests/utils/` and export it in
+  `tests/utils/__init__.py` for discoverability.
+- For error-path tests, use a simple raiser helper instead of custom
+  lambdas. Example pattern supported in collections:
+  ```python
+  from tests.utils import boom
+
+  # Force a function to raise during monkeypatch
+  monkeypatch.setattr("pkg.module.func", boom(ValueError("boom")))
+  ```
+- Use `monkeypatch` for local, readable scoping; keep mocks minimal and
+  targeted. Maintain parametrize for variations and keep filter wrapper
+  tests light when core helpers are well-covered elsewhere.
+
 ### Unit Test Structure
 
 **Use pytest with consistent fixture patterns:**

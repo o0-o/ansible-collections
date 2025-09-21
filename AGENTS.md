@@ -70,6 +70,27 @@ yamllint .  # catches additional formatting issues
 - For future collections, copy the `utils/` setup when wiring
   `antsibull-docs`, `antsibull-changelog`, and publishing workflows.
 
+## Antsibull Docs & Changelog Standards
+
+- Every collection must ship the same docs layout as `utils/` and `posix/`:
+  `docs/requirements.txt`, `docs/source/` with `antsibull-docs.cfg`, `conf.py`,
+  `index.rst`, and a `docs/tools/prebuild.sh` helper that populates
+  `docs/source/generated/` via `antsibull-docs` before we run Sphinx.
+- GitHub Pages workflows should match the pattern in `utils/.github/workflows/docs.yml`:
+  run the prebuild script, call `sphinx-build`, upload the `site/` directory, and
+  only trigger on version tags unless the collection explicitly needs branch
+  previews.
+- Changelogs must be managed through `antsibull-changelog` using
+  `changelogs/config.yaml`, `changelogs/changelog.yaml`, and fragments under
+  `changelogs/fragments/`. Treat fragments as temporary scratch files—create them
+  for each notable change, run
+  `antsibull-changelog release --version <next>` when preparing a release, then
+  let the tool consume the fragments. **Never hand-edit `changelogs/changelog.yaml`
+  or `CHANGELOG.rst`.**
+- Add collection-specific README notes reminding contributors that CI runs
+  `black`, `flake8`, and `yamllint` before the build, so lint failures will block
+  the workflow.
+
 
 ## Code Style Standards
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Focus
 
-This repository contains Ansible collections under the `o0_o` namespace. Current development focuses on four collections:
+This repository contains Ansible collections under the `o0_o` namespace. Current development focuses on the following collections:
 - **posix**: Cross-platform utilities with raw fallback support
 - **controller**: Ansible controller management
 - **inventory**: Inventory and connection management
@@ -23,18 +23,18 @@ cd posix/  # or controller/, inventory/, connection/
 ansible-test sanity --venv
 ansible-test units --venv
 ansible-test integration --venv
-```
-
-**Bulk Testing (Recommended):**
-```bash
-# Use the ./test.sh script for parallel testing across collections
-./test.sh controller inventory posix connection  # All collections
-./test.sh posix controller                       # Specific collections
+ansible-test integration --venv
+yamllint .  # catches additional formatting issues
 ```
 
 **Always validate changes:** Run tests before committing to ensure no regressions.
+**Never run `pytest` directly, use `ansible-test`**
 
 ## Code Style Standards
+
+### EOF
+
+**Always end files with a newline character (`\n`)!**
 
 ### File Headers
 
@@ -86,7 +86,7 @@ ansible-test integration --venv
 **Configuration:**
 - **Line length**: 79 characters (enforced by black and flake8)
 - **Doc/comment length**: 72 characters (enforced by flake8)
-- **E402 (imports)**: Ignored for module files only (see setup.cfg)
+- **E402 (imports)**: Ignored for module files only (see pyproject.toml)
 - **Indentation**: 4 spaces for Python, 2 spaces for YAML
 - **Use `from __future__ import annotations` for type hint support**
 
@@ -111,7 +111,7 @@ apostrophe: "Can't process this"  # Contains single quote
 # Correct
 argument_spec = {
     "gather_subset": {
-        "type": "list", 
+        "type": "list",
         "elements": "str",
         "default": ["all"],
         "choices": [
@@ -357,7 +357,7 @@ vars:
     - name: Assert failure occurred as expected
       ansible.builtin.assert:
         that:
-          - "'expected error' in ansible_failed_result.msg"
+          - "'expected error' in ansible_failed_result['msg']"
 ```
 
 **DO NOT use ignore_errors for failure testing:**
@@ -386,7 +386,7 @@ tests/integration/targets/<module_name>/
 ├── tasks/
 │   ├── main.yml         # Entry point with test orchestration
 │   ├── test_success.yml # Success case tests
-│   ├── test_failures.yml# Failure case tests  
+│   ├── test_failures.yml# Failure case tests
 │   └── cleanup.yml      # Cleanup operations
 ├── files/               # Static test files (NOT in tasks/)
 │   ├── input.txt
@@ -497,7 +497,7 @@ tests/integration/targets/<module_name>/
 
 ### Class Structure
 ```python
-class ActionModule(PosixBase):
+class ActionModule(PosixActionBase):
     '''Brief description of the plugin\'s purpose'''
 
     TRANSFERS_FILES = False
@@ -556,6 +556,49 @@ facts = result.get("ansible_facts", {})
 config = task_vars.get("hostvars", {}).get(inventory_hostname, {})
 ```
 
+### Filter Plugins
+
+**Filter plugins must follow naming conventions and include proper documentation:**
+```python
+def mount(data: Union[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Parse mount command output into structured data.
+
+    :param data: Mount command output as string or command result dict
+    :returns: List of mount entries with source, mount, type, and options
+    """
+```
+
+**Standards:**
+- Accept multiple input formats (string, command dict, slurp result)
+- Return consistent structured data
+- Include comprehensive unit tests
+- Use shared utilities from module_utils when appropriate
+
+### Module Utils Organization
+
+**Import directly from module_utils via __init__.py when possible:**
+```python
+# Preferred - import from module_utils directly
+from ansible_collections.o0_o.posix.plugins.module_utils import (
+    PosixActionBase
+)
+
+# Also acceptable for specific utilities
+from ansible_collections.o0_o.posix.plugins.module_utils.mount_utils import (
+    parse_mount_line
+)
+from ansible_collections.o0_o.posix.plugins.module_utils.jc_utils import (
+    jc_parse
+)
+```
+
+**Standards:**
+- Export commonly used classes/functions via `module_utils/__init__.py`
+- Group related functionality in dedicated module_utils files
+- Use consistent naming patterns (e.g., `mount_utils.py`, `fstab_utils.py`)
+- Include comprehensive type hints and documentation
+- Shared utilities like `process_registered_result` should be in appropriate util modules
+
 ## Module Documentation
 
 **All modules must include comprehensive DOCUMENTATION:**
@@ -602,10 +645,14 @@ releases:
         - Removed deprecated legacy_mode parameter
 ```
 
+**Do not mention specific linters**: black, flake8, ansible-lint, etc.
+
+The changelog file exists in the collection root as **changelog.yml**
+
 ### Git Workflow
 
 **Branch Strategy:**
-- `main`: Stable release branch  
+- `main`: Stable release branch
 - `formatting-consistency`: Active development branch for style improvements
 - Feature branches: For specific enhancements or fixes
 
@@ -624,6 +671,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
+
+**Do not mention specific linters in commit messages**
+
+**Do not use origin as a remote**, use `github` or similar descriptive name
 
 ### Git Tagging
 Use semantic versioning with v prefix:
@@ -689,7 +740,7 @@ Licensed under the [GNU General Public License v3.0](https://www.gnu.org/license
 ## Architecture Notes
 
 ### Base Classes
-- Extend `PosixBase` for action plugins requiring raw fallback
+- Extend `PosixActionBase` for action plugins requiring raw fallback
 - Use `self._display.vvv()` for verbose logging
 - Always implement proper check mode support
 
@@ -704,3 +755,5 @@ Licensed under the [GNU General Public License v3.0](https://www.gnu.org/license
 - `controller` manages Ansible infrastructure itself
 
 When making changes, ensure consistency with these established patterns and always include comprehensive tests and documentation.
+- Don't include the release date in the changelog
+- for ansible-test commands, always use the --venv at the very end. Anything after --venv will be silently ignored

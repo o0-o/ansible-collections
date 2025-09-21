@@ -57,6 +57,20 @@ yamllint .  # catches additional formatting issues
 **Always validate changes:** Run tests before committing to ensure no regressions.
 **Never run `pytest` directly, use `ansible-test`**
 
+## GitHub Pages & Docs Reference
+
+- Enable Pages for a collection repo with the GitHub CLI once:
+  ```bash
+  gh api --method POST \
+    -H 'Accept: application/vnd.github+json' \
+    /repos/<owner>/<repo>/pages \
+    -f build_type=workflow
+  ```
+  Replace `<owner>/<repo>` as needed.
+- For future collections, copy the `utils/` setup when wiring
+  `antsibull-docs`, `antsibull-changelog`, and publishing workflows.
+
+
 ## Code Style Standards
 
 ### EOF

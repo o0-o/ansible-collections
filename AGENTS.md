@@ -295,9 +295,11 @@ foo = dict(bar)  # Converting to dict is valid
 
 ### Bracket vs Dot Notation
 
-**ALWAYS use bracket notation for dictionary access in both Python AND Ansible/YAML:**
+**MANDATORY: ALWAYS use bracket notation for dictionary access - NO EXCEPTIONS**
 
-**Python:**
+This is one of the most common and critical violations in our codebase. Dot notation is NEVER acceptable for dictionary access in any context (except within string arguments to filters like selectattr).
+
+**Python - Use brackets for ALL dictionary access:**
 ```python
 # Correct - bracket notation for dict access
 kernel_name = un_s["stdout_lines"][0]
@@ -308,7 +310,7 @@ os_facts = ansible_facts.get("o0_os", {}).copy()  # Methods are fine
 kernel_name = un_s.stdout_lines[0]  # Wrong!
 ```
 
-**Ansible/YAML - This is CRITICAL:**
+**Ansible/YAML - ABSOLUTELY REQUIRED in ALL Jinja2 expressions:**
 ```yaml
 # Correct - ALWAYS use brackets in Jinja2 expressions
 - name: Check command result
@@ -337,12 +339,43 @@ kernel_name = un_s.stdout_lines[0]  # Wrong!
       - ansible_failed_result.msg  # WRONG!
 ```
 
-**Why this matters:**
-- Dot notation can break with special characters in keys
-- Bracket notation is consistent between Python and Jinja2
-- Bracket notation makes it clear you're accessing a dictionary, not an object attribute
+**Why bracket notation is MANDATORY:**
+- Dot notation WILL break with special characters or spaces in keys
+- Dot notation WILL cause silent failures with undefined values
+- Bracket notation is the ONLY consistent syntax between Python and Jinja2
+- Bracket notation explicitly shows dictionary access vs object attributes
+- Ansible best practices REQUIRE bracket notation for reliability
 
-**Use dot notation ONLY for actual object attributes/methods:**
+**Common violations to avoid:**
+```yaml
+# ALL of these are WRONG and must be fixed:
+when: result.changed              # WRONG!
+when: result['changed']            # CORRECT
+
+failed_when: output.rc != 0       # WRONG!
+failed_when: output['rc'] != 0    # CORRECT
+
+var: my_dict.some_key              # WRONG!
+var: my_dict['some_key']           # CORRECT
+
+# In set_fact or other assignments:
+- ansible.builtin.set_fact:
+    value: "{{ response.data.items }}"      # WRONG!
+    value: "{{ response['data']['items'] }}" # CORRECT
+```
+
+**Exception: String arguments to filters**
+```yaml
+# selectattr requires dot notation WITHIN its string argument:
+{{ items | selectattr('result.status', 'equalto', 'active') }}  # CORRECT
+# This is NOT accessing a dict with dot notation - it's a string parameter
+
+# But the variable itself must still use brackets:
+when: item.status == 'active'     # WRONG!
+when: item['status'] == 'active'  # CORRECT
+```
+
+**The ONLY acceptable uses of dot notation:**
 ```python
 # Correct - these are object attributes, not dict keys
 self._display.vvv(message)
@@ -401,6 +434,47 @@ def filter_module() -> FilterModule:
 - Simple getters/setters: One-line docstring is sufficient
 - Fixtures: Describe what they provide, not implementation details
 - Variable naming: Use `result` (not `results`), `task_vars` (not `variables`)
+
+### Docstring Formatting for Line Continuations
+
+**IMPORTANT: Use consistent 4-space indentation for continuation lines in docstrings:**
+
+When docstring lines exceed 72 characters, split them with consistent indentation:
+
+```python
+def complex_method(
+    self,
+    task_vars: Optional[Dict[str, Any]] = None,
+    long_parameter: str = "default"
+) -> Dict[str, Any]:
+    """Short description of the method's purpose.
+
+    Longer description that provides more context about what this
+    method does, when it should be used, and any important details.
+
+    :param Optional[Dict[str, Any]] task_vars: Available Ansible
+        variables passed from the task execution context
+    :param str long_parameter: Description that continues on the
+        next line with exactly 4-space indentation
+    :returns Dict[str, Any]: The result dictionary containing keys
+        like 'changed', 'msg', and any custom return values
+    :raises AnsibleActionFail: When validation fails or required
+        resources cannot be accessed
+    :raises RuntimeError: When detection methods are exhausted
+        without finding required information
+
+    .. note::
+        Multi-line notes should also maintain consistent
+        indentation for readability.
+    """
+```
+
+**Key rules for docstring continuation:**
+- Continuation lines use exactly 4 spaces of indentation from the line start
+- This aligns continuation text under the first character after `:param `, `:returns `, etc.
+- Keep the 72-character limit for docstring content (excluding indentation)
+- Maintain consistency across all docstrings in the codebase
+- Use `Tuple[str, Optional[str]]` not `tuple[str, Optional[str]]` for type hints
 
 ## Action Plugins
 
@@ -1103,8 +1177,73 @@ options:
     elements: str
     default: ['all']
     choices: ['all', 'kernel', 'arch', '!all', '!kernel', '!arch']
+seealso:
+  - module: ansible.builtin.setup
+    description: Gather facts about remote hosts
 '''
 ```
+
+### Common ansible-test Validation Issues
+
+**Avoid these common pitfalls that cause ansible-test failures:**
+
+1. **Module Documentation seealso section:**
+   ```yaml
+   # CORRECT - use 'module:' for module references
+   seealso:
+     - module: ansible.builtin.stat
+       description: Retrieve file status
+
+   # WRONG - 'name:' is not valid for modules
+   seealso:
+     - name: ansible.builtin.stat  # This will fail validation!
+       description: Retrieve file status
+   ```
+
+2. **RETURN Documentation structure:**
+   ```yaml
+   # CORRECT - merge behavioral notes into description
+   RETURN = r'''
+   file:
+     description: >-
+       File metadata dictionary.
+       When I(recursive=true) this includes nested data.
+     type: dict
+   '''
+
+   # WRONG - 'notes' field not allowed at nested levels
+   RETURN = r'''
+   file:
+     description: File metadata dictionary
+     type: dict
+     notes:  # This will fail validation!
+       - When recursive=true behavior changes
+   '''
+   ```
+
+3. **Variable naming in action plugins:**
+   ```python
+   # CORRECT - use descriptive names for all variables
+   validation_result, new_args = self.validate_argument_spec(
+       argument_spec=argument_spec
+   )
+
+   # WRONG - underscore alone is a disallowed name
+   _, new_args = self.validate_argument_spec(  # Will fail pylint!
+       argument_spec=argument_spec
+   )
+   ```
+
+4. **Test docstring format:**
+   ```python
+   # CORRECT - action-oriented test descriptions
+   def test_locale_from_command(monkeypatch, plugin) -> None:
+       """Test successful parsing of locale command output."""
+
+   # WRONG - passive voice without "Test"
+   def test_locale_from_command(monkeypatch, plugin) -> None:
+       """Parse locale output into categories."""  # Less clear
+   ```
 
 ## Release Management
 

@@ -383,6 +383,40 @@ self._task.check_mode
 task.args.clear()
 ```
 
+### Exception Variable Naming
+
+**Use `e` as the exception variable name for simple exception handling:**
+
+```python
+# Standard pattern
+try:
+    result = some_operation()
+except AnsibleActionFail as e:
+    self._display.warning(f"Operation failed: {e}")
+    raise
+except Exception as e:
+    return {"failed": True, "msg": f"Unexpected error: {e}"}
+
+# Avoid verbose names for simple cases
+except Exception as exc:   # Unnecessarily verbose
+except Exception as error: # Unnecessarily verbose
+```
+
+**For nested or complex exception handling, use descriptive names as needed:**
+```python
+# Nested exceptions - use pragmatic naming
+try:
+    connection = establish_connection()
+except ConnectionError as connection_error:
+    try:
+        fallback = use_fallback_method()
+    except FallbackError as fallback_error:
+        self._display.warning(
+            f"Both methods failed: primary={connection_error}, "
+            f"fallback={fallback_error}"
+        )
+```
+
 ### Type Hints and Documentation
 
 **ALWAYS include docstrings - no exceptions:**

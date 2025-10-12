@@ -51,7 +51,6 @@ cd posix/  # or controller/, inventory/, connection/
 ansible-test sanity --venv
 ansible-test units --venv
 ansible-test integration --venv
-ansible-test integration --venv
 yamllint .  # catches additional formatting issues
 ```
 
@@ -213,23 +212,21 @@ yamllint .                                   # Check YAML issues
 
 ### String Quoting Standards
 
-**Python:** Black automatically handles string quoting preferences (generally prefers double quotes).
+**Python:** Black handles quoting automatically (prefers double quotes).
 
 **YAML:** Prefer single quotes for plain strings:
 ```yaml
-# Single quotes for plain strings (preferred)
 greeting: 'Hello world'
-fail_msg: 'Simple error message'
 
-# Double quotes for special cases (YAML requirement)
-content: "Multi-line\nwith escapes"  # Escape sequences need double quotes in YAML
-template_var: "{{ jinja_expression }}"  # Jinja2 expressions
+# Double quotes for special cases
+content: "Multi-line\nwith escapes"  # Escape sequences
+template_var: "{{ jinja_expression }}"  # Jinja2
 apostrophe: "Can't process this"  # Contains single quote
 ```
 
-**Long Jinja2 expressions in YAML:** Use proper multiline format to stay under 79 characters:
+**Long Jinja2 expressions - use >- multiline format:**
 ```yaml
-# Correct - using >- for folded scalar with opening {{ on same line
+# Correct
 - name: Parse fstab content
   ansible.builtin.set_fact:
     fstab_parsed: >-
@@ -237,150 +234,86 @@ apostrophe: "Can't process this"  # Contains single quote
          | b64decode
          | o0_o.posix.fstab }}
 
-# Also correct - for complex expressions with multiple filters
-- name: Find root mount
-  ansible.builtin.set_fact:
-    root_mount: >-
-      {{ mount_parsed
-         | selectattr('mount', 'equalto', '/')
-         | first }}
-
-# For conditionals in when clauses
-- name: Assert long hostname exists
-  ansible.builtin.assert:
-    that:
-      - o0_os['hostname']['long'] is defined
+# For conditionals
   when: >-
     '.' in parsed_default['hostname'].get('long',
                                            parsed_default['hostname']['short'])
 
 # Incorrect - line too long
-- name: Parse fstab content
-  ansible.builtin.set_fact:
     fstab_parsed: "{{ fstab_content_reg['content'] | b64decode | o0_o.posix.fstab }}"
 ```
 
-**Prefer {} instead of dict():**
+**Prefer {} over dict():**
 ```python
 # Correct
 argument_spec = {
     "gather_subset": {
         "type": "list",
-        "elements": "str",
-        "default": ["all"],
-        "choices": [
-            "all", "kernel", "arch",
-            "!all", "!kernel", "!arch"
-        ]
+        "default": ["all"]
     }
 }
 
-result.update({
-    "skipped": True,
-    "skip_reason": "This does not appear to be a POSIX system.",
-    "ansible_facts": {}
-})
-
 # Incorrect
-argument_spec = dict(
-    gather_subset=dict(  # Wrong - use {}
-        type="list",
-        elements="str"
-    )
-)
+argument_spec = dict(gather_subset=dict(...))  # Wrong
 
-# Exception
-foo = dict(bar)  # Converting to dict is valid
+# Exception: dict(bar) for conversion is valid
 ```
 
 ### Bracket vs Dot Notation
 
 **MANDATORY: ALWAYS use bracket notation for dictionary access - NO EXCEPTIONS**
 
-This is one of the most common and critical violations in our codebase. Dot notation is NEVER acceptable for dictionary access in any context (except within string arguments to filters like selectattr).
+Dot notation is NEVER acceptable for dictionary access (except within string arguments to filters like selectattr).
 
-**Python - Use brackets for ALL dictionary access:**
+**Python:**
 ```python
-# Correct - bracket notation for dict access
+# Correct
 kernel_name = un_s["stdout_lines"][0]
-facts = result.get("ansible_facts", {})  # Getters are fine
-os_facts = ansible_facts.get("o0_os", {}).copy()  # Methods are fine
+facts = result.get("ansible_facts", {})
 
-# Incorrect - never use dot notation for dicts
+# Incorrect
 kernel_name = un_s.stdout_lines[0]  # Wrong!
 ```
 
-**Ansible/YAML - ABSOLUTELY REQUIRED in ALL Jinja2 expressions:**
+**Ansible/YAML:**
 ```yaml
-# Correct - ALWAYS use brackets in Jinja2 expressions
+# Correct
 - name: Check command result
   ansible.builtin.assert:
     that:
       - command_result_reg['rc'] == 0
-      - command_result_reg['stdout'] is defined
       - "'success' in command_result_reg['stdout']"
 
-- name: Use slurped content
-  ansible.builtin.set_fact:
-    decoded: "{{ slurp_result_reg['content'] | b64decode }}"
-
-- name: Access ansible_failed_result
-  rescue:
-    - ansible.builtin.assert:
-        that:
-          - "'expected error' in ansible_failed_result['msg']"
-
-# Incorrect - NEVER use dot notation in Ansible
-- name: Wrong way to check
-  ansible.builtin.assert:
+# Incorrect
+- ansible.builtin.assert:
     that:
-      - command_result_reg.rc == 0  # WRONG!
-      - slurp_result.content is defined  # WRONG!
-      - ansible_failed_result.msg  # WRONG!
+      - command_result_reg.rc == 0  # Wrong!
 ```
 
-**Why bracket notation is MANDATORY:**
-- Dot notation WILL break with special characters or spaces in keys
-- Dot notation WILL cause silent failures with undefined values
-- Bracket notation is the ONLY consistent syntax between Python and Jinja2
-- Bracket notation explicitly shows dictionary access vs object attributes
-- Ansible best practices REQUIRE bracket notation for reliability
+**Why:**
+- Breaks with special characters or spaces in keys
+- Causes silent failures with undefined values
+- Only brackets work consistently in Python and Jinja2
 
-**Common violations to avoid:**
+**Common violations:**
 ```yaml
-# ALL of these are WRONG and must be fixed:
-when: result.changed              # WRONG!
+when: result.changed              # WRONG
 when: result['changed']            # CORRECT
 
-failed_when: output.rc != 0       # WRONG!
-failed_when: output['rc'] != 0    # CORRECT
-
-var: my_dict.some_key              # WRONG!
+var: my_dict.some_key              # WRONG
 var: my_dict['some_key']           # CORRECT
-
-# In set_fact or other assignments:
-- ansible.builtin.set_fact:
-    value: "{{ response.data.items }}"      # WRONG!
-    value: "{{ response['data']['items'] }}" # CORRECT
 ```
 
-**Exception: String arguments to filters**
+**Exception - string arguments to filters:**
 ```yaml
-# selectattr requires dot notation WITHIN its string argument:
-{{ items | selectattr('result.status', 'equalto', 'active') }}  # CORRECT
-# This is NOT accessing a dict with dot notation - it's a string parameter
-
-# But the variable itself must still use brackets:
-when: item.status == 'active'     # WRONG!
-when: item['status'] == 'active'  # CORRECT
+{{ items | selectattr('result.status', 'equalto', 'active') }}  # OK
+when: item['status'] == 'active'  # Still use brackets for variable access
 ```
 
-**The ONLY acceptable uses of dot notation:**
+**Acceptable dot notation - object attributes only:**
 ```python
-# Correct - these are object attributes, not dict keys
 self._display.vvv(message)
 self._task.check_mode
-task.args.clear()
 ```
 
 ### Exception Variable Naming
@@ -421,7 +354,7 @@ except ConnectionError as connection_error:
 
 **ALWAYS include docstrings - no exceptions:**
 
-**For complex methods - full reST-style documentation:**
+**Complex methods - full reST-style:**
 ```python
 def method_name(self, param1: str, param2: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Short description of method purpose.
@@ -432,83 +365,38 @@ def method_name(self, param1: str, param2: Optional[Dict[str, Any]] = None) -> D
     :param Optional[Dict[str, Any]] param2: Description with default info
     :returns Dict[str, Any]: Description of return value structure
     :raises AnsibleActionFail: When and why this exception occurs
-
-    .. note::
-        Important implementation details or warnings
     """
 ```
 
-**For test methods and simple functions - brief docstrings:**
+**Simple functions and tests - brief docstrings:**
 ```python
 def test_mount_parser_with_spaces():
     """Test that mount parser handles paths with spaces correctly."""
-    # No need for :param:, :returns:, etc. for test methods
 
 def get_mount_point(path: str) -> str:
     """Extract mount point from path."""
-    # Simple one-liner explanation is sufficient for obvious methods
     return path.split()[0]
-```
 
-**For fixtures - describe what they provide:**
-```python
 @pytest.fixture
 def filter_module() -> FilterModule:
     """Create a FilterModule instance for testing."""
-    # Brief description of what the fixture provides
     return FilterModule()
 ```
 
-**Documentation standards:**
-- **ALWAYS include a docstring** - even if it's just one line
-- Method signatures: Full type annotations (Optional, Dict, List, etc.)
-- Return types: Always specify return type annotations
-- Complex methods: Full reST-style with params, returns, raises
-- Test methods: Brief descriptive docstring only
-- Simple getters/setters: One-line docstring is sufficient
-- Fixtures: Describe what they provide, not implementation details
-- Variable naming: Use `result` (not `results`), `task_vars` (not `variables`)
-
-### Docstring Formatting for Line Continuations
-
-**IMPORTANT: Use consistent 4-space indentation for continuation lines in docstrings:**
-
-When docstring lines exceed 72 characters, split them with consistent indentation:
-
+**Docstring continuation (>72 chars) - use 4-space indentation:**
 ```python
-def complex_method(
-    self,
-    task_vars: Optional[Dict[str, Any]] = None,
-    long_parameter: str = "default"
-) -> Dict[str, Any]:
-    """Short description of the method's purpose.
-
-    Longer description that provides more context about what this
-    method does, when it should be used, and any important details.
-
     :param Optional[Dict[str, Any]] task_vars: Available Ansible
         variables passed from the task execution context
-    :param str long_parameter: Description that continues on the
-        next line with exactly 4-space indentation
     :returns Dict[str, Any]: The result dictionary containing keys
         like 'changed', 'msg', and any custom return values
-    :raises AnsibleActionFail: When validation fails or required
-        resources cannot be accessed
-    :raises RuntimeError: When detection methods are exhausted
-        without finding required information
-
-    .. note::
-        Multi-line notes should also maintain consistent
-        indentation for readability.
-    """
 ```
 
-**Key rules for docstring continuation:**
-- Continuation lines use exactly 4 spaces of indentation from the line start
-- This aligns continuation text under the first character after `:param `, `:returns `, etc.
-- Keep the 72-character limit for docstring content (excluding indentation)
-- Maintain consistency across all docstrings in the codebase
-- Use `Tuple[str, Optional[str]]` not `tuple[str, Optional[str]]` for type hints
+**Standards:**
+- Always include docstrings (even one-liners)
+- Full type annotations: `Optional[Dict[str, Any]]`, not `dict | None`
+- Use `Tuple[str, Optional[str]]` not `tuple[str, Optional[str]]`
+- Variable naming: `result` not `results`, `task_vars` not `variables`
+- Continuation lines: 4-space indentation from line start
 
 ## Action Plugins
 
@@ -609,165 +497,81 @@ def test_run_subset_selection(monkeypatch, plugin, subset, expect_os, expect_hw)
 
 **Prefer parametrize for testing variations:**
 ```python
-# GOOD - Concise, clear, and maintainable
+# GOOD - Concise and maintainable
 @pytest.mark.parametrize('input_str,expected', [
-    ("/dev/sda1 on / type ext4 (rw)", {"mount": "/", "source": "/dev/sda1", "type": "ext4"}),
-    ("tmpfs on /run type tmpfs (rw,nosuid)", {"mount": "/run", "source": "tmpfs", "type": "tmpfs"}),
-    ("/dev/sda2 on /mnt/my files type ext4 (rw)", {"mount": "/mnt/my files", "source": "/dev/sda2", "type": "ext4"}),
+    ("/dev/sda1 on / type ext4 (rw)", {"mount": "/", "source": "/dev/sda1"}),
+    ("tmpfs on /run type tmpfs (rw,nosuid)", {"mount": "/run", "source": "tmpfs"}),
 ])
 def test_parse_mount_variations(input_str, expected):
     """Test mount parsing with various input formats."""
-    result = parse_mount_line(input_str)
-    assert result == expected
+    assert parse_mount_line(input_str) == expected
 
-# BAD - Repetitive separate test functions
-def test_parse_mount_basic():
-    """Test basic mount parsing."""
-    result = parse_mount_line("/dev/sda1 on / type ext4 (rw)")
-    assert result["mount"] == "/"
-    assert result["source"] == "/dev/sda1"
-    assert result["type"] == "ext4"
-
-def test_parse_mount_tmpfs():
-    """Test tmpfs mount parsing."""
-    result = parse_mount_line("tmpfs on /run type tmpfs (rw,nosuid)")
-    assert result["mount"] == "/run"
-    assert result["source"] == "tmpfs"
-    assert result["type"] == "tmpfs"
-
-def test_parse_mount_with_spaces():
-    """Test mount with spaces."""
-    # ... yet another similar test
+# BAD - Repetitive separate functions for each case
 ```
 
-**Parametrize benefits:**
-- Reduces code duplication dramatically
-- Makes it easy to add new test cases
-- Clear separation of test data from test logic
-- Better test output showing which case failed
-- Can combine with fixtures for even more power
-
-**Keep mocking simple and focused:**
+**Keep mocking simple:**
 ```python
-# GOOD - Mock only what's necessary for the test
+# GOOD - Mock only what's necessary
 def test_parse_mount_with_spaces(filter_module):
     """Test mount parsing handles paths with spaces."""
     mount_output = "/dev/sda1 on /mnt/my files type ext4 (rw,relatime)"
     result = filter_module.filters()["mount"](mount_output)
     assert result[0]["mount"] == "/mnt/my files"
 
-# BAD - Over-complicated mock setup
-def test_parse_mount_complex():
-    """Don't create elaborate mock hierarchies."""
-    mock_jc = MagicMock()
-    mock_jc.parse = MagicMock(return_value=[...])
-    mock_module = MagicMock()
-    mock_module.jc = mock_jc
-    # ... many more mock setups
-```
-
-**Focus mocking on edge cases and failures:**
-```python
 # GOOD - Mock specific failure conditions
 def test_jc_parse_error(filter_module):
     """Test filter handles jc parse errors gracefully."""
-    with patch("ansible_collections.o0_o.posix.plugins.module_utils.jc_utils.jc.parse",
-               side_effect=Exception("Parse error")):
+    with patch("...jc.parse", side_effect=Exception("Parse error")):
         with pytest.raises(AnsibleFilterError, match="df failed"):
             filter_module.filters()["df"]("invalid output")
-
-# GOOD - Use real functions when possible
-def test_normalize_mount_entry():
-    """Test mount normalization with real function."""
-    from ansible_collections.o0_o.posix.plugins.module_utils.mount_utils import (
-        normalize_mount_entry
-    )
-    entry = {"target": "/mnt", "source": "/dev/sda1"}
-    result = normalize_mount_entry(entry)
-    assert result["mount"] == "/mnt"
 ```
 
-**Avoid over-testing wrapper functions:**
+**Avoid over-testing wrappers:**
 ```python
-# If parse_mount_line() is thoroughly tested:
-def test_parse_mount_line_comprehensive():
-    """Comprehensive tests for core parsing logic."""
-    # ... many test cases for parse_mount_line()
-
-# Then the filter wrapper only needs minimal testing:
+# If core function is tested, wrapper only needs basic verification
 def test_mount_filter_wrapper(filter_module):
     """Test filter correctly wraps parse_mount_line."""
-    # Just verify the filter exists and calls the function
     mount_filter = filter_module.filters()["mount"]
     assert callable(mount_filter)
-    # Maybe one basic test to ensure it's wired correctly
-    result = mount_filter("simple mount output")
-    assert isinstance(result, list)
-
-# DON'T duplicate all parse_mount_line tests for the filter
+    assert isinstance(mount_filter("test output"), list)
 ```
 
 **Testing guidelines:**
-- Use real helper functions and imports when available
-- Mock only external dependencies and failure conditions
-- Don't create complex mock hierarchies
-- If testing a wrapper, focus on wrapper-specific behavior
-- Use parametrize for testing multiple similar cases
+- Use parametrize for variations
+- Mock only external dependencies and failures
+- Use real functions when possible
+- Don't duplicate tests for wrappers
 - Keep test data realistic and minimal
 
 ### Test Data Organization
 
-**Store long test data in separate files:**
+**Store long test data (>5-10 lines) in separate files:**
 ```python
-# BAD - Long test data cluttering the test file
-def test_parse_complex_mount():
-    """Test parsing complex mount output."""
-    mount_output = """
-    /dev/mapper/vg0-root on / type ext4 (rw,relatime,errors=remount-ro)
-    devtmpfs on /dev type devtmpfs (rw,nosuid,size=4096k,nr_inodes=1048576)
-    tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev)
-    tmpfs on /run type tmpfs (rw,nosuid,nodev,mode=755)
-    # ... many more lines ...
-    """
-    result = parse_mount(mount_output)
-
-# GOOD - Load test data from files
+# GOOD - Load from file
 def test_parse_complex_mount():
     """Test parsing complex mount output."""
     test_data_dir = Path(__file__).parent / "files"
     mount_output = (test_data_dir / "mount_complex.txt").read_text()
     result = parse_mount(mount_output)
+
+# BAD - Inline multi-line data clutters test
 ```
 
 **Test file structure:**
 ```
 tests/
 ├── unit/
-│   ├── utils/                           # Shared unit test utilities
-│   │   ├── __init__.py
-│   │   ├── mounts.py                    # Mount-related test helpers
-│   │   └── real_cmd.py                  # Real command execution for tests
-│   └── plugins/
-│       └── filter/
-│           ├── files/                   # Test data for unit tests
-│           │   ├── mount_basic.txt
-│           │   ├── mount_complex.txt
-│           │   └── fstab_sample.txt
-│           └── test_mount.py
-└── integration/
-    └── targets/
-        └── filter_mount/
-            ├── files/                   # Test data for integration tests
-            │   ├── expected_output.json
-            │   └── mock_mount.txt
-            └── tasks/
-                └── main.yml
+│   ├── utils/           # Shared helpers (mounts.py, real_cmd.py, etc.)
+│   └── plugins/filter/
+│       ├── files/       # Test data (mount_basic.txt, fstab_sample.txt)
+│       └── test_mount.py
+└── integration/targets/<module_name>/
+    ├── files/           # Test data for integration tests
+    └── tasks/
 ```
 
-**Loading test data in unit tests:**
+**Loading test data:**
 ```python
-from pathlib import Path
-
 @pytest.fixture
 def test_data_dir():
     """Path to test data files directory."""
@@ -777,17 +581,8 @@ def test_with_file_data(test_data_dir):
     """Test using data from file."""
     input_data = (test_data_dir / "input.txt").read_text()
     expected = json.loads((test_data_dir / "expected.json").read_text())
-    result = some_function(input_data)
-    assert result == expected
+    assert some_function(input_data) == expected
 ```
-
-**Guidelines:**
-- Use separate files for test data longer than 5-10 lines
-- Name files descriptively (e.g., `mount_with_spaces.txt`, `fstab_nfs_entries.txt`)
-- Keep related input and expected output files together
-- Use JSON for structured expected output data
-- Document any special characteristics in the filename or a README
-- Use `tests/unit/utils/` for shared unit test helper functions
 
 ### Integration Test Structure
 
@@ -804,10 +599,9 @@ def test_with_file_data(test_data_dir):
 
 ### Variable Naming Conventions
 
-**ALL Ansible code (not just integration tests) must follow these variable naming standards:**
+**ALL Ansible code must follow these variable naming standards:**
 
-#### Registered Variables
-**ALWAYS use descriptive names with `_reg` suffix:**
+**Registered Variables - use descriptive names with `_reg` suffix:**
 ```yaml
 # Correct
 - name: Run command with argv
@@ -815,80 +609,43 @@ def test_with_file_data(test_data_dir):
     argv: [echo, foo]
   register: command_argv_reg
 
-- name: Slurp file content
-  o0_o.posix.slurp64:
-    src: /path/to/file
-  register: slurp_content_reg
-
-- name: Template rendering
-  o0_o.posix.template:
-    src: hello.j2
-    dest: /tmp/hello.txt
-  register: template_render_reg
-
-# Incorrect - generic names
-- name: Run command
-  o0_o.posix.command:
-    argv: [echo, foo]
-  register: result  # Too generic
-
-- name: Slurp file
-  slurp:
-    src: /path/to/file
-  register: reg     # Too generic
+# Incorrect - too generic
+  register: result  # Wrong!
 ```
 
-#### Variable Declarations
-**Use descriptive names with `_var` suffix for declared variables:**
+**Variable Declarations - use `_var` suffix or descriptive names:**
 ```yaml
 # Correct
 vars:
   greeting_var: 'Hello world'
   files_dir_var: "{{ playbook_dir }}/files"
-  timeout_seconds_var: 30
-
-# Acceptable for well-established patterns
-vars:
-  dest_path: /tmp/output
-  src_file: input.txt
+  dest_path: /tmp/output  # Acceptable for established patterns
 ```
 
-#### Facts Access
-**Use direct fact access instead of registered variable indirection:**
+**Facts Access - use direct access instead of indirection:**
 ```yaml
-# Correct - direct access
-- name: Assert kernel is Linux
-  assert:
+# Correct
+- assert:
     that:
       - o0_os['kernel']['name'] == 'Linux'
 
-# Incorrect - unnecessary indirection
-- name: Gather facts
-  o0_o.posix.facts:
+# Incorrect - unnecessary indirection through registered variable
+- o0_o.posix.facts:
   register: facts_result_reg
-
-- name: Assert kernel is Linux
-  assert:
+- assert:
     that:
       - facts_result_reg['ansible_facts']['o0_os']['kernel']['name'] == 'Linux'
 ```
 
-#### Variable References
-**Use bracket notation consistently:**
+**Variable References - always use bracket notation:**
 ```yaml
 # Correct
-- name: Assert command succeeded
-  assert:
-    that:
-      - command_result_reg['rc'] == 0
-      - command_result_reg['stdout'] | length > 0
-      - "'success' in command_result_reg['stdout']"
+that:
+  - command_result_reg['rc'] == 0
 
-# Incorrect - dot notation
-- name: Assert command succeeded
-  assert:
-    that:
-      - command_result_reg.rc == 0  # Wrong!
+# Incorrect
+that:
+  - command_result_reg.rc == 0  # Wrong!
 ```
 
 ### Failure Testing Standards
@@ -931,118 +688,56 @@ vars:
 
 ### Integration Test Best Practices
 
-#### Directory Structure
-**Follow standard Ansible integration test layout:**
+**Directory Structure:**
 ```
 tests/integration/targets/<module_name>/
 ├── tasks/
 │   ├── main.yml         # Entry point with test orchestration
 │   ├── test_success.yml # Success case tests
-│   ├── test_failures.yml# Failure case tests
-│   └── cleanup.yml      # Cleanup operations
-├── files/               # Static test files (NOT in tasks/)
-│   ├── input.txt
-│   └── expected.txt
-├── templates/           # Jinja2 templates (NOT in tasks/)
-│   └── test_template.j2
-└── vars/
-    └── main.yml         # Test-specific variables
+│   └── test_failures.yml# Failure case tests
+├── files/               # Static test files (siblings of tasks/, not inside)
+│   └── input.txt
+└── templates/           # Jinja2 templates (siblings of tasks/, not inside)
+    └── test_template.j2
 ```
 
-**IMPORTANT:** `files/` and `templates/` directories must be siblings of `tasks/`, not subdirectories within `tasks/`.
-
-#### Test Organization
-**Structure integration tests with proper variable scoping:**
+**Test Organization:**
 ```yaml
-# main.yml - Test orchestration
-- name: Create temporary directory for integration tests
+# main.yml - Test orchestration with cleanup
+- name: Create temporary directory
   ansible.builtin.tempfile:
     state: directory
     suffix: module_test
   register: test_tmpdir_reg
 
-- name: Set test directory fact
-  ansible.builtin.set_fact:
-    test_dir_var: "{{ test_tmpdir_reg.path }}"
-
 - name: Try
   block:
-
     - name: Run test set with permutations
       ansible.builtin.include_tasks: "{{ item[0] }}"
       loop: "{{ test_sets | product(loop_list) }}"
       vars:
-        test_sets:
-          - test_success.yml
-          - test_failures.yml
+        test_sets: [test_success.yml, test_failures.yml]
         loop_list: "{{ [true, false] | product([true, false]) }}"
         _force_raw: "{{ item[1][0] }}"
         ansible_check_mode: "{{ item[1][1] }}"
-
   always:
-
-    - name: Clean up temporary test directory
+    - name: Clean up
       ansible.builtin.file:
-        path: "{{ test_dir_var }}"
+        path: "{{ test_tmpdir_reg.path }}"
         state: absent
 ```
 
-#### Template Variable Consolidation
-**Follow DRY principles - define repeated variables centrally:**
+**Key Practices:**
+- **DRY**: Define repeated variables centrally in include_tasks vars, not in each task file
+- **Directory variables**: Set `files_dir_var` and `templates_dir_var` in main.yml
+- **Loop control**: Use `loop_control.loop_var` to avoid variable collisions with `ansible_check_mode`
+
 ```yaml
-# Correct - centralized variable definition
-- name: Run template tests
-  ansible.builtin.include_tasks: template_test.yml
-  vars:
-    greeting_var: 'Hello world'
-    template_dir_var: "{{ playbook_dir }}/targets/template/templates"
-
-# Incorrect - repeated variable definitions
-# template_test.yml would have:
-# vars:
-#   greeting_var: 'Hello world'  # Repeated in every task file
-```
-
-#### File References
-**Use consistent directory variables:**
-```yaml
-# In main.yml
-- name: Set directories
-  ansible.builtin.set_fact:
-    files_dir_var: "{{ playbook_dir }}/targets/{{ ansible_role_name }}/files"
-    templates_dir_var: "{{ playbook_dir }}/targets/{{ ansible_role_name }}/templates"
-
-# In task files
-- name: Copy test file
-  ansible.builtin.copy:
-    src: "{{ files_dir_var }}/input.txt"
-    dest: "{{ test_dir_var }}/input.txt"
-
-- name: Validate against expected output
-  vars:
-    expected_content: "{{ lookup('file', files_dir_var + '/expected.txt') }}"
-  ansible.builtin.assert:
-    that:
-      - actual_content == expected_content
-```
-
-#### Loop Control
-**Avoid variable name collisions in loops:**
-```yaml
-# Correct - specify loop_var to avoid conflicts
-- name: Run tests with different parameters
-  ansible.builtin.include_tasks: single_test.yml
+# Example: Avoid collisions
+- ansible.builtin.include_tasks: single_test.yml
   loop: "{{ test_parameters }}"
   loop_control:
-    loop_var: test_param    # Avoid conflict with ansible_check_mode
-  vars:
-    test_value: "{{ test_param }}"
-
-# Incorrect - can cause variable collisions
-- name: Run tests
-  ansible.builtin.include_tasks: single_test.yml
-  loop: "{{ test_parameters }}"
-  # Missing loop_control can cause ansible_check_mode conflicts
+    loop_var: test_param  # Prevents conflicts
 ```
 
 ## Plugin Development Patterns
@@ -1128,66 +823,41 @@ def mount(data: Union[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 ### Module Utils Organization and Imports
 
-**ALWAYS prefer the shortest available import path:**
+**Import rules to avoid circular dependencies:**
+
+**External imports (from other packages) - use __init__.py exports:**
 ```python
-# CORRECT - use __init__.py exports when available
+# CORRECT - importing from module_utils in your plugin
 from ansible_collections.o0_o.posix.plugins.module_utils import (
-    PosixActionBase
-)
-
-# WRONG - don't use full path if __init__ export exists
-from ansible_collections.o0_o.posix.plugins.module_utils.posix_action_base import (  # noqa: E501
-    PosixActionBase  # Wrong! Use the shorter import above
-)
-
-# CORRECT - for utilities not exported via __init__
-from ansible_collections.o0_o.posix.plugins.module_utils.mount_utils import (
+    PosixActionBase,
     parse_mount_line
 )
 
-# For unavoidably long imports, use noqa comment
-from ansible_collections.o0_o.posix.plugins.module_utils.some_long_module import (  # noqa: E501
-    VerySpecificUtilityFunction
+# WRONG - bypassing __init__.py for external imports
+from ansible_collections.o0_o.posix.plugins.module_utils.posix_action_base import (
+    PosixActionBase  # Wrong! Use __init__.py export
 )
 ```
 
-**NEVER import parent modules to use with dot notation:**
+**Internal imports (within module_utils) - use direct imports:**
 ```python
-# WRONG - never do this
-from ansible_collections.o0_o.posix.plugins import module_utils
-result = module_utils.PosixActionBase.some_method()  # Wrong!
+# CORRECT - inside module_utils/mount_utils.py
+from ansible_collections.o0_o.posix.plugins.module_utils.fstab_utils import (
+    normalize_entry
+)
 
-# CORRECT - import what you need directly
+# WRONG - using __init__.py within the same directory causes circular imports
 from ansible_collections.o0_o.posix.plugins.module_utils import (
-    PosixActionBase
+    normalize_entry  # Wrong! Circular import risk
 )
-result = PosixActionBase.some_method()
-```
-
-**In docstrings, use backslash for long imports:**
-```python
-"""Example docstring with imports.
-
-Usage:
-    from ansible.plugins.action import ActionBase
-    from ansible_collections.o0_o.posix.plugins.module_utils \
-        import PosixActionBase
-
-    class ActionModule(PosixActionBase, ActionBase):
-        pass
-"""
 ```
 
 **Standards:**
-- Check `module_utils/__init__.py` first for available exports
-- Use the shortest import path available
-- Export commonly used classes/functions via `module_utils/__init__.py`
-- Group related functionality in dedicated module_utils files
-- Use consistent naming patterns (e.g., `mount_utils.py`, `fstab_utils.py`)
-- Include comprehensive type hints and documentation
-- Shared utilities like `process_registered_result` should be in appropriate util modules
-- Use noqa comment for unavoidably long imports in code
-- Use backslash for line continuation in docstrings
+- Export commonly used classes/functions in `module_utils/__init__.py`
+- External consumers always import via `__init__.py`
+- Within `module_utils/`, use direct file imports to avoid circular dependencies
+- Use consistent naming: `mount_utils.py`, `fstab_utils.py`
+- Use `# noqa: E501` for unavoidably long imports
 
 ## Module Documentation
 
@@ -1315,16 +985,14 @@ The changelog location varies by collection - check for `changelog.yml` or `chan
 
 **Commit Standards:**
 
-**For Claude (claude.ai/code) - include signature:**
+Use HEREDOC format for commit messages:
 ```bash
 git commit -m "$(cat <<'EOF'
-Fix mount filter to use merged dict for options
+Short summary line
 
-Changed mount options from list of dicts to merged dict format.
-Unlike fstab which needs list for order preservation, mount
-options are now stored as a single dictionary.
+Detailed description of changes and reasoning.
+Multiple lines explaining the what and why.
 
-Updated all unit and integration tests to match new format.
 Tests pass with ansible-test sanity, units, and integration.
 
 🤖 Generated with [Claude Code](https://claude.ai/code)
@@ -1334,37 +1002,11 @@ EOF
 )"
 ```
 
-**For other AI agents or tools - NO Claude signature:**
-```bash
-git commit -m "$(cat <<'EOF'
-Fix mount filter to use merged dict for options
-
-Changed mount options from list of dicts to merged dict format.
-Unlike fstab which needs list for order preservation, mount
-options are now stored as a single dictionary.
-
-Updated all unit and integration tests to match new format.
-Tests pass with ansible-test sanity, units, and integration.
-EOF
-)"
-```
-
-**For human developers - standard format:**
-```bash
-git commit -m "Fix mount filter to use merged dict for options
-
-Changed mount options storage format for better performance
-and cleaner API. All tests updated and passing."
-```
-
-**IMPORTANT:** The Claude signature (🤖 and Co-Authored-By lines) should ONLY be used by Claude itself. Other AI agents should either:
-- Use their own attribution if they have one
-- Use no attribution at all
-- Never impersonate Claude by using Claude's signature
-
-**Do not mention specific linters in commit messages**
-
-**Do not use origin as a remote**, use `github` or similar descriptive name
+**Notes:**
+- Claude signature (🤖 and Co-Authored-By) only for Claude itself
+- Other AI agents: use own attribution or none at all
+- Do not mention specific linters in commit messages
+- Do not use `origin` as remote name, use `github` or similar
 
 ### Git Tagging
 Use semantic versioning with v prefix:

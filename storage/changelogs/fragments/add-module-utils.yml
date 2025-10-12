@@ -1,6 +1,0 @@
-major_changes:
-  - Add StorageBase class for storage classification and facts formatting
-  - Add STORAGE_DRIVERS dictionary with comprehensive filesystem driver definitions
-
-minor_changes:
-  - Create module_utils/__init__.py for clean imports
